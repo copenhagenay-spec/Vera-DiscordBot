@@ -417,6 +417,15 @@ client.on('interactionCreate', async (interaction) => {
 
       const cleanTitle = ticket.confirmedPostName || forumPost.name.replace(/\s*\|.*$/, '').trim();
       await forumPost.setName(`${cleanTitle} | Status: ✅ Fixed`);
+
+      // Edit the original post message to update the status line
+      const messages = await forumPost.messages.fetch({ limit: 1, after: '0' });
+      const firstMessage = messages.last();
+      if (firstMessage && firstMessage.author.id === client.user.id) {
+        const updatedContent = firstMessage.content.replace('**Status:** 🔴 Open', '**Status:** ✅ Fixed');
+        await firstMessage.edit(updatedContent);
+      }
+
       await forumPost.send(`**Fixed in:** v${version}`);
 
       ticketsData.tickets[ticketId].status = 'fixed';

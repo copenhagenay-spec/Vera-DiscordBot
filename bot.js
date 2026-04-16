@@ -24,6 +24,7 @@ const GUILD_ID                 = process.env.GUILD_ID;
 const BUG_REPORT_CHANNEL_ID    = process.env.BUG_REPORT_CHANNEL_ID;
 const TICKET_CHANNEL_ID        = process.env.TICKET_CHANNEL_ID;
 const CONFIRMED_BUGS_CHANNEL_ID = process.env.CONFIRMED_BUGS_CHANNEL_ID;
+const BUG_UPDATES_CHANNEL_ID   = process.env.BUG_UPDATES_CHANNEL_ID;
 const STAFF_ROLE_ID            = process.env.STAFF_ROLE_ID;
 const USER_ROLE_ID             = process.env.USER_ROLE_ID;
 const VERA_SECRET              = process.env.VERA_SECRET;
@@ -124,9 +125,24 @@ app.post('/report', verifyToken, upload.single('log_zip'), async (req, res) => {
     await addStaffToThread(thread, guild);
     if (STAFF_ROLE_ID) await thread.send(`<@&${STAFF_ROLE_ID}> new bug report.`);
 
-    ticketsData.tickets[String(ticketId)] = { threadId: thread.id, status: 'open', type: 'bug' };
+    ticketsData.tickets[String(ticketId)] = { threadId: thread.id, status: 'open', type: 'bug', discord_username: discord_username || null };
     ticketsData.next_id = ticketId + 1;
     saveTickets(ticketsData);
+
+    // Ping user in public bug-updates channel if username was provided
+    if (BUG_UPDATES_CHANNEL_ID && discord_username) {
+      try {
+        const updatesChannel = await guild.channels.fetch(BUG_UPDATES_CHANNEL_ID);
+        if (updatesChannel) {
+          const member = guild.members.cache.find(m => m.user.username === discord_username)
+            || await guild.members.fetch({ query: discord_username, limit: 1 }).then(r => r.first()).catch(() => null);
+          const mention = member ? `<@${member.id}>` : `@${discord_username}`;
+          await updatesChannel.send(`${mention} Hey! We received your bug report (#${ticketId}) and our team is looking into it. We'll update you here when it's resolved. Thanks for the report!`);
+        }
+      } catch (err) {
+        console.error('Failed to post to bug-updates channel:', err);
+      }
+    }
 
     const threadUrl = `https://discord.com/channels/${GUILD_ID}/${thread.id}`;
     return res.json({ ticket_id: ticketId, thread_url: threadUrl });
@@ -430,6 +446,21 @@ client.on('interactionCreate', async (interaction) => {
 
       ticketsData.tickets[ticketId].status = 'fixed';
       saveTickets(ticketsData);
+
+      // Ping user in bug-updates channel
+      if (BUG_UPDATES_CHANNEL_ID && ticket.discord_username) {
+        try {
+          const updatesChannel = await guild.channels.fetch(BUG_UPDATES_CHANNEL_ID);
+          if (updatesChannel) {
+            const member = guild.members.cache.find(m => m.user.username === ticket.discord_username)
+              || await guild.members.fetch({ query: ticket.discord_username, limit: 1 }).then(r => r.first()).catch(() => null);
+            const mention = member ? `<@${member.id}>` : `@${ticket.discord_username}`;
+            await updatesChannel.send(`${mention} Great news! The bug you reported (#${ticketId}) has been fixed and will ship in v${version}. Update VERA when the release drops to get the fix!`);
+          }
+        } catch (err) {
+          console.error('Failed to post fix notification to bug-updates channel:', err);
+        }
+      }
 
       await interaction.reply({ content: `Marked as fixed in v${version}.`, ephemeral: true });
     } catch (err) {
